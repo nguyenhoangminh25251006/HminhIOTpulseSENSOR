@@ -12,19 +12,19 @@ bpm_value = 0
 ser = None
 
 def get_serial_port():
-    # 1. Kiểm tra tham số dòng lệnh hoặc biến môi trường
+    # 1. Check command-line argument or environment variable
     if len(sys.argv) > 1:
         return sys.argv[1]
     env_port = os.environ.get("SERIAL_PORT")
     if env_port:
         return env_port
 
-    # 2. Mặc định trên Raspberry Pi / Linux
+    # 2. Default device path on Raspberry Pi / Linux
     default_linux_port = "/dev/ttyACM0"
     if os.path.exists(default_linux_port):
         return default_linux_port
 
-    # 3. Tự động tìm cổng khả dụng nếu chạy trên Windows hoặc Linux khác
+    # 3. Auto-detect available COM / TTY port if running on Windows or other platforms
     ports = list(serial.tools.list_ports.comports())
     for p in ports:
         if "Arduino" in p.description or "ACM" in p.device or "USB" in p.description:
@@ -36,7 +36,7 @@ def get_serial_port():
 
 port_name = get_serial_port()
 
-# Mở kết nối Serial với Arduino
+# Establish Serial connection to Arduino
 try:
     ser = serial.Serial(port_name, 115200, timeout=0.1)
     time.sleep(2)
@@ -47,7 +47,7 @@ except Exception as e:
     ser = None
 
 
-# Luồng đọc dữ liệu liên tục từ Arduino
+# Background thread for continuously reading serial data from Arduino
 def read_serial():
     global bpm_value
     while True:
@@ -74,7 +74,7 @@ def bpm():
 @app.route("/")
 def home():
     return """<!DOCTYPE html>
-<html lang="vi">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -151,7 +151,7 @@ h1 {
 
 <div class="card">
     <h1>PI Heart Monitor</h1>
-    <p class="subtitle">Hệ thống theo dõi nhịp tim thời gian thực</p>
+    <p class="subtitle">Real-time Heart Rate Monitoring Dashboard</p>
 
     <div class="bpm-container">
         <div id="bpm">--</div>
@@ -171,7 +171,7 @@ const chart = new Chart(ctx, {
     data: {
         labels: Array(20).fill(''),
         datasets: [{
-            label: 'Nhịp tim (BPM)',
+            label: 'Heart Rate (BPM)',
             data: Array(20).fill(0),
             borderColor: '#ff4757',
             backgroundColor: 'rgba(255, 71, 87, 0.1)',
@@ -211,7 +211,7 @@ async function update() {
 
         bpmEl.innerText = data.bpm > 0 ? data.bpm : '--';
 
-        // Hiệu ứng nhịp đập nhẹ khi có dữ liệu
+        // Pulse scale animation on heartbeat update
         if (data.bpm > 0) {
             bpmEl.style.transform = 'scale(1.05)';
             setTimeout(() => { bpmEl.style.transform = 'scale(1)'; }, 150);
@@ -223,7 +223,7 @@ async function update() {
         }
         chart.update();
     } catch (err) {
-        console.error("Lỗi cập nhật BPM:", err);
+        console.error("Error fetching BPM data:", err);
     }
 }
 

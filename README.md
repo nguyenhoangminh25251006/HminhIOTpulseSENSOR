@@ -1,122 +1,127 @@
 # HminhIOTpulseSENSOR 🫀
 
-Hệ thống giám sát nhịp tim thời gian thực (**Real-time Heart Rate Monitor**) ứng dụng công nghệ cảm biến quang thể tích (**Photoplethysmography - PPG**), vi điều khiển **Arduino**, máy chủ **Raspberry Pi / PC (Python Flask)** và giao diện hiển thị biểu đồ trực quan (**Chart.js**).
+A real-time IoT heart rate monitoring system built with a **Photoplethysmography (PPG) Pulse Sensor**, an **Arduino microcontroller**, a **Python Flask backend (Raspberry Pi / PC)**, and an interactive **Chart.js web dashboard**.
 
 ---
 
-## 📑 Mục lục
-1. [Kiến trúc hệ thống](#-kiến-trúc-hệ-thống)
-2. [Cấu trúc thư mục](#-cấu-trúc-thư-mục)
-3. [Giải thích chi tiết thuật toán quy đổi sóng Analog ra BPM](#-giải-thích-chi-tiết-thuật-toán-quy-đổi-sóng-analog-ra-bpm)
-   - [Nguyên lý cảm biến quang thể tích (PPG)](#1-nguyên-lý-cảm-biến-quang-thể-tích-ppg)
-   - [Đặc tính tín hiệu Analog & Tần số lấy mẫu](#2-đặc-tính-tín-hiệu-analog--tần-số-lấy-mẫu)
-   - [Các bước xử lý thuật toán](#3-các-bước-xử-lý-thuật-toán)
-   - [Trực quan hóa dạng sóng và các mốc kích hoạt](#4-trực-quan-hóa-dạng-sóng-và-các-mốc-kích-hoạt)
-4. [Sơ đồ kết nối phần cứng (Wiring)](#-sơ-đồ-kết-nối-phần-cứng-wiring)
-5. [Hướng dẫn cài đặt & vận hành](#-hướng-dẫn-cài-đặt--vận-hành)
-   - [Nạp chương trình cho Arduino](#1-nạp-chương-trình-cho-arduino)
-   - [Cài đặt máy chủ Python Flask](#2-cài-đặt-máy-chủ-python-flask)
-   - [Khởi chạy và quan sát](#3-khởi-chạy-và-quan-sát)
+## 📑 Table of Contents
+1. [System Architecture](#-system-architecture)
+2. [Project Structure](#-project-structure)
+3. [Deep Dive: Analog Waveform to BPM Conversion Algorithm](#-deep-dive-analog-waveform-to-bpm-conversion-algorithm)
+   - [1. Principles of Photoplethysmography (PPG)](#1-principles-of-photoplethysmography-ppg)
+   - [2. Analog Characteristics & Sampling Rate](#2-analog-characteristics--sampling-rate)
+   - [3. Step-by-Step Algorithmic Pipeline](#3-step-by-step-algorithmic-pipeline)
+   - [4. Waveform Timing & Trigger Points Diagram](#4-waveform-timing--trigger-points-diagram)
+4. [Hardware Wiring Diagram](#-hardware-wiring-diagram)
+5. [Installation & Getting Started](#-installation--getting-started)
+   - [1. Flash Firmware to Arduino](#1-flash-firmware-to-arduino)
+   - [2. Setup Python Server](#2-setup-python-server)
+   - [3. Run & Access Dashboard](#3-run--access-dashboard)
+6. [Tuning & Best Practices](#-tuning--best-practices)
 
 ---
 
-## 🏛 Kiến trúc hệ thống
+## 🏛 System Architecture
 
 ```mermaid
 flowchart LR
-    A["Pulse Sensor (PPG)"] -->|"Tín hiệu Analog (A0)"| B["Arduino Uno / Nano"]
-    B -->|"Thuật toán lọc & quy đổi BPM"| B
-    B -->|"UART Serial (115200 baud)"| C["Raspberry Pi / PC"]
+    A["Pulse Sensor (PPG)"] -->|"Analog Voltage (A0)"| B["Arduino Uno / Nano"]
+    B -->|"DSP: Edge Detect & Filter"| B
+    B -->|"UART Serial (115200 baud)"| C["Raspberry Pi / Host PC"]
     C -->|"Flask REST API (/bpm)"| D["Web Dashboard"]
-    D -->|"Chart.js vẽ đồ thị"| E["Trình duyệt (Browser)"]
+    D -->|"Chart.js Rendering"| E["Browser Client"]
 ```
 
-- **Tầng cảm biến:** Thu nhận thay đổi thể tích máu dưới mao mạch đầu ngón tay.
-- **Tầng xử lý nhúng (Arduino):** Đọc tín hiệu ADC, lọc nhiễu, bắt đỉnh xung sườn lên (Rising Edge), tính khoảng cách IBI và làm mượt trung bình trượt 4 nhịp.
-- **Tầng máy chủ (Flask App):** Chạy background thread đọc cổng Serial, cung cấp endpoint `/bpm` và phục vụ giao diện Web Dashboard.
-- **Tầng hiển thị (Frontend):** Hiển thị chỉ số BPM lớn và vẽ đồ thị nhịp tim theo thời gian thực (cập nhật 1s/lần với Chart.js).
+- **Sensing Layer:** Captures microvascular blood volume variations in the capillary bed of a fingertip or earlobe.
+- **Embedded Processing Layer (Arduino):** Performs Analog-to-Digital Conversion (ADC), rising-edge threshold detection, physiological window filtering, and 4-sample moving average smoothing.
+- **Server Layer (Python Flask):** Reads serial telemetry asynchronously in a background thread and exposes JSON endpoints.
+- **Presentation Layer (Frontend):** Renders real-time BPM values and dynamic line graphs updating every second.
 
 ---
 
-## 📁 Cấu trúc thư mục
+## 📁 Project Structure
 
 ```text
 HminhIOTpulseSENSOR/
 ├── pulse_sensor/
-│   └── pulse_sensor.ino   # Firmware Arduino: Thuật toán đọc ADC & quy đổi ra BPM
-├── app.py                 # Backend Flask + Web Dashboard Chart.js thời gian thực
-├── requirements.txt       # Danh sách thư viện Python cần thiết
-├── .gitignore             # Quy tắc loại trừ tệp tạm của Git
-└── README.md              # Tài liệu hướng dẫn chi tiết dự án
+│   └── pulse_sensor.ino   # Arduino firmware: ADC sampling & BPM extraction algorithm
+├── app.py                 # Flask server & real-time Chart.js dashboard
+├── requirements.txt       # Python dependencies (Flask, pyserial)
+├── .gitignore             # Standard git ignore definitions
+└── README.md              # Project documentation
 ```
 
 ---
 
-## 🔬 Giải thích chi tiết thuật toán quy đổi sóng Analog ra BPM
+## 🔬 Deep Dive: Analog Waveform to BPM Conversion Algorithm
 
-Thuật toán trong `pulse_sensor.ino` giải quyết bài toán: **Làm thế nào để chuyển đổi dòng điện áp dao động liên tục (sóng Analog hình sin mấp mô) từ cảm biến quang thành một con số nhịp tim chuẩn xác (BPM - Beats Per Minute)?**
+The firmware (`pulse_sensor.ino`) addresses a fundamental signal processing challenge: **How do we reliably extract an accurate heart rate metric (BPM - Beats Per Minute) from raw, noisy, sinusoidal analog voltage fluctuations emitted by an optical sensor?**
 
-### 1. Nguyên lý cảm biến quang thể tích (PPG)
-- Cảm biến sử dụng một đèn LED màu xanh lá (bước sóng ~550 nm) và một cảm biến quang (Photodiode).
-- Huyết sắc tố (**Hemoglobin**) trong máu có đặc tính hấp thụ ánh sáng xanh lá cực kỳ mạnh.
-- Mỗi khi tim co bóp tống máu (**tâm thu - Systole**), lượng máu chảy dồn về mao mạch đầu ngón tay tăng vọt $\rightarrow$ ánh sáng bị hấp thụ nhiều hơn $\rightarrow$ lượng ánh sáng phản xạ trở lại Photodiode thay đổi $\rightarrow$ điện áp đầu ra trên chân tín hiệu tăng lên đỉnh.
-- Khi tim giãn ra (**tâm trương - Diastole**), thể tích máu giảm $\rightarrow$ điện áp hạ xuống đáy.
-- Kết quả tạo thành một **dạng sóng xung huyết động (PPG Pulse Wave)** dạng sóng tuần hoàn.
+### 1. Principles of Photoplethysmography (PPG)
+- The optical pulse sensor integrates a **green LED (~550 nm peak wavelength)** and a matched **photodiode detector**.
+- Oxygenated hemoglobin ($HbO_2$) circulating in human arterial blood absorbs green light significantly more efficiently than surrounding tissue.
+- **Systolic Phase (Ventricular Contraction):**
+  - The left ventricle ejects blood into the arterial system.
+  - Blood volume in the fingertip capillary beds surges rapidly.
+  - Light absorption peaks, causing the reflected/transmitted light received by the photodiode to drop, producing a rapid voltage surge (the systolic pulse wave peak).
+- **Diastolic Phase (Heart Relaxation):**
+  - Capillary blood volume recedes.
+  - Light absorption decreases, causing the signal voltage to return toward baseline.
+- This cyclical cardiovascular phenomenon produces an undulating **PPG pulse wave**.
 
 ---
 
-### 2. Đặc tính tín hiệu Analog & Tần số lấy mẫu
-- Vi điều khiển Arduino Uno sử dụng bộ chuyển đổi ADC 10-bit:
-  - Giá trị đọc được từ chân `A0` qua hàm `analogRead(PulsePin)` nằm trong dải: $0 \div 1023$ (tương ứng với $0\text{V} \div 5\text{V}$).
-- Trong vòng lặp `loop()`, lệnh `delay(5)` quy định chu kỳ lấy mẫu:
+### 2. Analog Characteristics & Sampling Rate
+- The Arduino Uno 10-bit Successive Approximation Register (SAR) ADC samples pin `A0` via `analogRead(PulsePin)`.
+  - Resolution: $2^{10} = 1024$ quantization levels ($0 \div 1023$, mapping $0\text{V} \div 5\text{V}$).
+- The main `loop()` executes with a `delay(5)` throttle:
   $$T_s \approx 5\text{ ms} \implies f_s = \frac{1000}{5} = 200\text{ Hz}$$
-- Theo **định lý lấy mẫu Nyquist-Shannon**, tần số lấy mẫu $200\text{ Hz}$ lớn hơn rất nhiều so với tần số nhịp tim cao nhất của con người ($\approx 3.5\text{ Hz}$, tương đương 210 BPM), đảm bảo thu nhận đầy đủ hình thái sóng mà không bị méo tín hiệu.
+- According to the **Nyquist-Shannon Sampling Theorem**, an acquisition rate of $200\text{ Hz}$ comfortably exceeds twice the maximum frequency component of a human pulse waveform ($\approx 3.5\text{ Hz}$, equivalent to 210 BPM), fully preserving the rising flank and timing morphology without aliasing.
 
 ---
 
-### 3. Các bước xử lý thuật toán
+### 3. Step-by-Step Algorithmic Pipeline
 
-#### Bước 1: Phát hiện sườn lên (Rising Edge Detection)
+#### Step 1: Rising Edge Detection & Thresholding
 ```cpp
 if (signal > threshold && !aboveThreshold) {
     aboveThreshold = true;
     ...
 ```
-- Ngưỡng cố định `threshold = 130` được chọn làm mốc phát hiện xung (điểm vượt ngưỡng).
-- Khi giá trị `signal` vượt qua `threshold` **VÀ** cờ `aboveThreshold == false` (tức là trước đó tín hiệu đang ở dưới ngưỡng):
-  - Đây chính là **thời điểm bắt đầu của một nhát bóp tim mới (Sườn lên - Rising Edge)**.
-  - Ngay lập tức gán `aboveThreshold = true` để **khóa kích hoạt**, tránh việc vòng lặp đọc liên tục ở đỉnh sóng và đếm lặp 1 nhịp nhiều lần.
+- A baseline detection threshold `threshold = 130` is established.
+- When `signal` exceeds `threshold` **while** the state flag `aboveThreshold == false`:
+  - A new ventricular pulse wave onset is recognized (**Rising Edge**).
+  - The flag `aboveThreshold` is immediately set to `true`. This functions as a debounce mechanism, preventing subsequent ADC readings on the same systolic crest from triggering multiple counts.
 
-#### Bước 2: Đo khoảng thời gian giữa hai nhịp liên tiếp (IBI - Inter-Beat Interval)
+#### Step 2: Inter-Beat Interval (IBI) Measurement
 ```cpp
 if (lastBeatTime > 0) {
     beatInterval = now - lastBeatTime;
 ```
-- Hàm `millis()` trả về số mili-giây kể từ khi vi điều khiển khởi động.
-- Khoảng cách thời gian giữa nhịp đập hiện tại (`now`) và nhịp đập trước đó (`lastBeatTime`) được tính bằng:
-  $$\text{IBI} = \text{beatInterval} = \text{now} - \text{lastBeatTime} \quad (\text{đơn vị: ms})$$
+- Using the millisecond timer `millis()`, the duration between the current trigger timestamp `now` and the preceding valid pulse `lastBeatTime` is computed:
+  $$\text{IBI} = \text{beatInterval} = \text{now} - \text{lastBeatTime} \quad (\text{ms})$$
 
-#### Bước 3: Bộ lọc dải sinh lý người (Physiological Range Filter)
+#### Step 3: Physiological Window Filtering (Noise Rejection)
 ```cpp
 const int MIN_IBI = 300;   // ms → 200 BPM max
 const int MAX_IBI = 1500;  // ms → 40 BPM min
 
 if (beatInterval >= MIN_IBI && beatInterval <= MAX_IBI) {
 ```
-- Cơ thể người trong điều kiện bình thường đến vận động mạnh có nhịp tim dao động từ **40 đến 200 BPM**:
-  - Với $\text{BPM}_{\max} = 200 \implies \text{MIN\_IBI} = \frac{60000}{200} = 300\text{ ms}$.
-  - Với $\text{BPM}_{\min} = 40 \implies \text{MAX\_IBI} = \frac{60000}{40} = 1500\text{ ms}$.
-- Bất kỳ khoảng thời gian nào $< 300\text{ ms}$ (thường là nhiễu xung cơ học, rung tay) hoặc $> 1500\text{ ms}$ (tuột cảm biến, mất tiếp xúc) đều bị loại bỏ, giúp hệ thống không đưa ra dữ liệu rác.
+- Normal human heart rates under resting or strenuous physical conditions range between **40 and 200 BPM**:
+  - Maximum physiological rate: $\text{BPM}_{\max} = 200 \implies \text{MIN\_IBI} = \frac{60000}{200} = 300\text{ ms}$.
+  - Minimum physiological rate: $\text{BPM}_{\min} = 40 \implies \text{MAX\_IBI} = \frac{60000}{40} = 1500\text{ ms}$.
+- Any calculated intervals outside this bounds ($< 300\text{ ms}$ or $> 1500\text{ ms}$) are discarded. This rejects high-frequency mechanical vibration, ambient optical flicker, or finger movement artifacts.
 
-#### Bước 4: Công thức quy đổi ra BPM tức thời
+#### Step 4: Instantaneous BPM Conversion
 ```cpp
 int bpm = 60000 / beatInterval;
 ```
-- Vì 1 phút có 60 giây = 60.000 ms, nhịp tim tức thời được tính:
+- Since there are $60\text{ seconds} \times 1000\text{ ms} = 60,000\text{ ms}$ in one minute:
   $$\text{BPM} = \frac{60000}{\text{IBI (ms)}}$$
-- Ví dụ: Nếu khoảng cách giữa 2 lần đập là $750\text{ ms} \implies \text{BPM} = \frac{60000}{750} = 80\text{ nhịp/phút}$.
+- Example: If $\text{beatInterval} = 750\text{ ms} \implies \text{BPM} = \frac{60000}{750} = 80\text{ beats/min}$.
 
-#### Bước 5: Bộ lọc trung bình trượt 4 nhịp (Moving Average Filter Buffer)
+#### Step 5: 4-Sample Moving Average Filter
 ```cpp
 bpmBuffer[bpmIndex++] = bpm;
 if (bpmIndex >= 4) {
@@ -129,96 +134,94 @@ if (bufferFilled) {
     for (int i = 0; i < 4; i++) sum += bpmBuffer[i];
     int avgBPM = sum / 4;
 ```
-- Nhịp tim sinh lý của con người có hiện tượng biến thiên tự nhiên giữa từng nhịp (**HRV - Heart Rate Variability**). Nếu hiển thị BPM tức thời, chỉ số sẽ nhảy liên tục gây cảm giác bất ổn định.
-- Để làm mượt, thuật toán sử dụng một mảng tròn `bpmBuffer` gồm 4 mẫu gần nhất. Khi bộ đệm đã đầy 4 mẫu (`bufferFilled = true`), giá trị trung bình cộng được tính:
+- Natural **Heart Rate Variability (HRV)** causes subtle beat-to-beat fluctuations. Directly outputting raw instantaneous BPM produces erratic, jumpy readings.
+- A circular buffer storing the four most recent valid intervals computes a smoothed moving average:
   $$\text{avgBPM} = \frac{1}{4} \sum_{i=0}^{3} \text{bpmBuffer}[i]$$
-- Giá trị `avgBPM` này được in ra cổng Serial để truyền sang Raspberry Pi / PC.
+- This stabilizes the metric before transmission over UART.
 
-#### Bước 6: Cơ chế trễ (Hysteresis - Schmitt Trigger) để xả cờ
+#### Step 6: Hysteresis Reset (Schmitt Trigger Behavior)
 ```cpp
 if (signal < threshold - 5) {
     aboveThreshold = false;
     digitalWrite(LED, LOW);
 }
 ```
-- Khi sóng tim đi xuống, ta **không** hạ cờ ngay tại điểm `threshold`, mà phải đợi tín hiệu rơi xuống dưới $\text{threshold} - 5$ (tức là $< 125$).
-- **Tại sao cần vùng trễ (Hysteresis)?**
-  - Tín hiệu analog luôn có nhiễu sóng nhỏ (ripple noise). Nếu không có độ lệch trễ 5 đơn vị ADC, tín hiệu khi lượn lờ quanh ngưỡng 130 có thể kích hoạt bật/tắt liên tục (chattering), gây ra nhịp tim giả mạo.
+- To re-arm the trigger, the waveform must decay strictly below $(\text{threshold} - 5) = 125$.
+- A hysteresis margin of $\Delta = 5$ ADC units prevents chattering or rapid toggling caused by noise ripples hovering near the boundary threshold.
 
 ---
 
-### 4. Trực quan hóa dạng sóng và các mốc kích hoạt
+### 4. Waveform Timing & Trigger Points Diagram
 
 ```text
-Điện áp ADC (0 - 1023)
+Analog Signal (0 - 1023)
       ^
-      |                 Peak (Đỉnh xung tim)
+      |                 Systolic Peak
       |                    /\
       |                   /  \
-threshold = 130 ---------[A]---\-------------------------  <-- Kích hoạt nhịp (Rising Edge)
+threshold = 130 ---------[A]---\-------------------------  <-- Trigger pulse (Rising Edge)
       |                 /       \
-threshold - 5 = 125 ---/---------[B]---------------------  <-- Hạ cờ chuẩn bị nhịp mới (Reset)
+threshold - 5 = 125 ---/---------[B]---------------------  <-- Arm trigger for next beat (Reset)
       |               /           \        /\
-      |              /             \______/  \ (Sóng Dicrotic Notch)
+      |              /             \______/  \ (Dicrotic Notch)
       |   __________/                         \__________
-      +----------------------------------------------------> Thời gian (t)
+      +----------------------------------------------------> Time (t)
                        |<------- beatInterval (IBI) ------>|
 ```
 
-- **Điểm [A]:** `signal > threshold` và `aboveThreshold == false` $\rightarrow$ Đo khoảng thời gian IBI, tính toán BPM, chớp LED báo hiệu.
-- **Điểm [B]:** `signal < threshold - 5` $\rightarrow$ Đặt lại `aboveThreshold = false`, tắt LED, sẵn sàng đón nhịp tiếp theo.
+- **Point [A]:** `signal > threshold` and `aboveThreshold == false` $\rightarrow$ Validates pulse, calculates IBI, updates moving average, blinks pulse LED.
+- **Point [B]:** `signal < threshold - 5` $\rightarrow$ Clears flag (`aboveThreshold = false`), turns off LED, and prepares for the subsequent cycle.
 
 ---
 
-## 🔌 Sơ đồ kết nối phần cứng (Wiring)
+## 🔌 Hardware Wiring Diagram
 
-| Cảm biến Pulse Sensor | Chân Arduino Uno / Nano | Chú thích |
+| Pulse Sensor Pin | Arduino Pin | Description |
 | :--- | :--- | :--- |
-| **VCC (+)** | **5V** (hoặc 3.3V) | Nguồn cấp cảm biến |
-| **GND (-)** | **GND** | Mass chung |
-| **Signal (S)** | **A0** | Tín hiệu Analog |
+| **VCC (+)** | **5V** (or 3.3V) | Sensor power supply |
+| **GND (-)** | **GND** | System ground |
+| **Signal (S)** | **A0** | Analog pulse waveform input |
 
-- **LED báo nhịp:** Sử dụng LED tích hợp sẵn trên bo Arduino (`LED_BUILTIN` - chân số 13).
-- **Kết nối truyền thông:** Cáp USB nối từ Arduino vào cổng USB của Raspberry Pi (nhận diện là `/dev/ttyACM0` hoặc `/dev/ttyUSB0`) hoặc cổng COM trên Windows (`COM3`, `COM4`,...).
+- **Pulse LED:** Uses built-in `LED_BUILTIN` (Pin 13 on Arduino Uno/Nano).
+- **Host Link:** Connect Arduino via USB cable to Raspberry Pi (`/dev/ttyACM0` or `/dev/ttyUSB0`) or PC (`COM3`, `COM4`, etc.).
 
 ---
 
-## 🚀 Hướng dẫn cài đặt & vận hành
+## 🚀 Installation & Getting Started
 
-### 1. Nạp chương trình cho Arduino
-1. Mở phần mềm **Arduino IDE**.
-2. Mở tệp [`pulse_sensor/pulse_sensor.ino`](pulse_sensor/pulse_sensor.ino).
-3. Chọn đúng bo mạch (**Tools > Board > Arduino Uno**) và đúng cổng COM kết nối (**Tools > Port**).
-4. Bấm **Upload** để nạp code lên Arduino.
+### 1. Flash Firmware to Arduino
+1. Open the [Arduino IDE](https://www.arduino.cc/en/software).
+2. Open [`pulse_sensor/pulse_sensor.ino`](pulse_sensor/pulse_sensor.ino).
+3. Select board model (**Tools > Board > Arduino Uno**) and target port (**Tools > Port**).
+4. Click **Upload** to flash the microcontroller.
 
-### 2. Cài đặt máy chủ Python Flask
-Yêu cầu đã cài đặt **Python 3.8+**.
+### 2. Setup Python Server
+Ensure Python 3.8+ is installed on the host system.
 
-Mở Terminal / Command Prompt tại thư mục dự án và cài đặt các thư viện phụ thuộc:
+Install dependencies:
 ```bash
 pip install -r requirements.txt
 ```
 
-### 3. Khởi chạy và quan sát
-Khởi động ứng dụng Flask:
+### 3. Run & Access Dashboard
+Start the Flask application:
 ```bash
 python app.py
 ```
-> **Mẹo:** Bạn có thể chỉ định cổng COM nếu chạy trên Windows hoặc dùng cổng khác:
+> **Tip:** You can specify an explicit serial port as an argument:
 > ```bash
-> python app.py COM3
-> # hoặc trên Linux
-> python app.py /dev/ttyUSB0
+> python app.py COM3           # Windows
+> python app.py /dev/ttyUSB0   # Linux / Raspberry Pi
 > ```
 
-Mở trình duyệt web bất kỳ và truy cập địa chỉ:
+Open any modern browser and navigate to:
 ```text
 http://localhost:5000
 ```
-*(Nếu chạy trên Raspberry Pi, truy cập `http://<IP_Raspberry_Pi>:5000` từ máy tính hoặc điện thoại trong cùng mạng LAN).*
+*(Or `http://<YOUR_PI_IP>:5000` from any device connected to the local network).*
 
 ---
 
-## 💡 Lưu ý khi đo để đạt độ chính xác cao
-1. **Lực ấn ngón tay:** Không đè ngón tay quá chặt vào mặt cảm biến vì sẽ làm nghẽn dòng máu dưới mao mạch, dẫn đến mất sóng xung. Chỉ cần đặt nhẹ nhàng và dùng băng dính cố định nếu có.
-2. **Hiệu chỉnh ngưỡng (`threshold`):** Tùy thuộc vào nguồn cấp và độ dày ngón tay, bạn có thể quan sát giá trị thô trên Serial Plotter của Arduino IDE và điều chỉnh lại biến `threshold` (mặc định là `130`) trong file `pulse_sensor.ino` cho phù hợp.
+## 💡 Tuning & Best Practices
+1. **Finger Pressure:** Do not press too firmly onto the sensor face. Excessive compression occludes capillary blood flow, flattening the pulsatile amplitude. Use gentle, consistent contact or a Velcro strap.
+2. **Threshold Calibration:** If the LED does not pulse synchronously with your heartbeat, open **Tools > Serial Plotter** in Arduino IDE to observe your baseline voltage, and adjust the `threshold` variable in `pulse_sensor.ino` accordingly.
